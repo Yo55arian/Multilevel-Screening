@@ -1,7 +1,0 @@
-"0","library(""DHARMa"")
-"
-"2","package ‘DHARMa’ was built under R version 3.4.3"
-"0","# https://cran.r-project.org/web/packages/DHARMa/vignettes/DHARMa.html#installing-loading-and-citing-the-package"
-"0","simulationOutput <- simulateResiduals(fittedModel = fit_2, n = 250)"
-"0","# slow!"
-"0","plotSimulatedResiduals(simulationOutput = simulationOutput)"

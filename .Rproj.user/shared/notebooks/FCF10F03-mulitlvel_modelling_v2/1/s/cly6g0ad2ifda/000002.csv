@@ -1,5 +1,0 @@
-"0","# Add the ons ccg codes based on lsoa to prevent pain and heartache later on"
-"0","# from https://ons.maps.arcgis.com/home/item.html?id=19e5c35c6a504a7b9e1b74bed1b6225f"
-"0","ccg_lkp <- read.csv(file=""data\\LSOA11_CCG16_LAD16_EN_LU.csv"", stringsAsFactors=F)"
-"0","coverage_data_supplemented <- coverage_data_supplemented %>%"
-"0","  left_join(ccg_lkp, by=c(""lsoa11""=""LSOA11CD""))"
