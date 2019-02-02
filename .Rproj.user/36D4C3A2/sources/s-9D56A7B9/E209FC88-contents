@@ -1,0 +1,1067 @@
+---
+title: "Multilevel Modelling Screening Uptake"
+author: "Simon Hailstone"
+date: "20 May 2018"
+output: 
+  html_document: 
+    number_sections: yes
+    toc: yes
+---
+
+# Set up
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set()
+```
+
+
+```{r, warning=FALSE, message=FALSE}
+library("knitr")
+library("ggplot2"); theme_set(theme_bw())
+library("dplyr")
+library("tidyr")
+library("reshape2")
+library("fingertipsR")
+library("RSQLite")
+library("glmmTMB")
+library("lme4")
+library("lmerTest")
+library("bbmle")
+library("forcats")
+library("rgdal")
+library("rgeos")
+library("maptools")
+library("broom")
+library("PerformanceAnalytics") # for scatterplot matrix
+library("spdep") # for poly2nb
+library("ape") # for moran's I
+library("arm") # to get se.ranef function
+library("kableExtra") # to make tables nicer
+```
+
+
+# Get data
+
+```{r}
+
+# Downloaded from NOMIS
+lsoa_demographics <- read.csv(file="data\\lsoa_demographics.csv", stringsAsFactors=F)
+
+
+lsoa_demographics <- melt(lsoa_demographics, id=1:3, measure=4:7, variable.name="Age_Band", value.name="Female_Population")
+
+
+# Create age splits for each lsoa
+lsoa_age_demographics <- lsoa_demographics %>%
+  group_by(Age_Band, LSOA) %>%
+  summarise("Female_Population"=sum(Female_Population)) %>% 
+  spread(Age_Band, Female_Population)
+
+  
+# Create ethnicity splits for each lsoa
+# could be done in more detail, keeping simple for now
+lsoa_ethnic_demographics <- lsoa_demographics %>%
+  group_by(Ethnic_Cat, LSOA) %>%
+  summarise("Female_Population"=sum(Female_Population)) %>% 
+  spread(Ethnic_Cat, Female_Population)
+
+# tidy up!
+# use sort(sapply(ls(),function(x){object.size(get(x))}))
+rm(lsoa_demographics)
+
+```
+
+
+```{r}
+# GP catchment female population for Jan 2017
+# From: http://digital.nhs.uk/catalogue/PUB23139
+
+gp_lsoa_catch <- read.csv(file="data\\gp-reg-patients-LSOA-alt-tall.csv", stringsAsFactors=F)
+
+
+# calculate total LSOA population
+LSOA_POP <- gp_lsoa_catch %>% 
+  group_by(LSOA_CODE) %>% 
+  summarise("TOTAL_FEMALE"=sum(FEMALE_PATIENTS))
+
+
+# Calc percentage of total lsoa pop registered with each practice
+gp_lsoa_catch <- gp_lsoa_catch %>% 
+  left_join(LSOA_POP) %>% 
+  mutate("PERCENTAGE_OF_LSOA"=FEMALE_PATIENTS/TOTAL_FEMALE)
+
+
+
+
+# Calc weighted ethnicity
+gp_lsoa_catch <- gp_lsoa_catch %>%  
+  left_join(lsoa_ethnic_demographics, by=c("LSOA_CODE"="LSOA"))
+
+
+gp_lsoa_catch[,9:13] <- (gp_lsoa_catch[,9:13] * gp_lsoa_catch$PERCENTAGE_OF_LSOA)
+
+
+
+# Calc weighted age bands
+gp_lsoa_catch <- gp_lsoa_catch %>%  
+  left_join(lsoa_age_demographics, by=c("LSOA_CODE"="LSOA"))
+
+
+gp_lsoa_catch[,14:17] <- (gp_lsoa_catch[,14:17] * gp_lsoa_catch$PERCENTAGE_OF_LSOA)
+
+```
+
+
+
+```{r}
+# now group up to practice level
+gp_demographics <- gp_lsoa_catch %>% 
+  group_by(PRACTICE_CODE) %>% 
+  summarise_at(funs(sum(.,na.rm = TRUE)) , .vars=c(8:16)) %>% 
+  mutate("Total_Pop"=`Asian/Asian British` +
+                     `Black/African/Caribbean/Black British` +
+                     `Mixed/multiple ethnic group` +
+                     `Other ethnic group` +
+                     `White`) %>% 
+  mutate(
+  "Ethn_Asian"=`Asian/Asian British` / Total_Pop * 100, 
+  "Ethn_Black"=`Black/African/Caribbean/Black British` / Total_Pop * 100,
+  "Ethn_Mixed"=`Mixed/multiple ethnic group` / Total_Pop * 100,
+  "Ethn_Other"=`Other ethnic group` / Total_Pop * 100,
+  "Ethn_White"=`White` / Total_Pop * 100) %>% 
+mutate(
+  "Age_0_to_24"=Age_0_to_24 / Total_Pop * 100, 
+  "Age_25_to_49"=Age_25_to_49 / Total_Pop * 100, 
+  "Age_50_to_64"=Age_50_to_64 / Total_Pop * 100, 
+  "Age_65_and_over"=Age_65_and_over / Total_Pop * 100
+  ) %>% 
+  dplyr::select(PRACTICE_CODE, starts_with("Ethn_"),starts_with("Age_"))
+
+
+# tidy up!
+# use sort(sapply(ls(),function(x){object.size(get(x))}))
+rm(gp_lsoa_catch)
+
+
+```
+
+```{r}
+# load fingertips data
+
+
+# IMD 2015
+imd_2015 <- fingertips_data(IndicatorID=91872,
+                        AreaTypeID = 7)
+
+imd_2015 <- imd_2015 %>% filter(AreaType=="GP") %>%
+  dplyr::select(AreaCode, "IMD_2015"=Value)
+
+
+# Patient satisfaction with opening hours
+satisfied_opening_hours <- fingertips_data(IndicatorID=1942,
+                        AreaTypeID = 7)
+
+satisfied_opening_hours <- satisfied_opening_hours %>%
+  filter(AreaType=="GP", Timeperiod=="2016/17") %>%
+  dplyr::select(AreaCode, "Satisfied_Opening_Hours"=Value)
+
+
+```
+
+
+```{r}
+# Load coverage data
+coverage_data <- read.csv(file="data\\Cerv_Cov_MachRead_GP_Q1_1718.csv", stringsAsFactors=F)
+coverage_data <- coverage_data %>%
+  filter(Age=="25_49", Year=="2017/18", Quarter=="Q1") %>%
+  spread(DataType, Value) %>% 
+  mutate("Coverage"=Screened/Eligible*100)
+
+
+# drop supressed values
+nrow(coverage_data)
+# How many records are dropped
+nrow(coverage_data %>% 
+  filter(is.na(Coverage)==TRUE))
+
+
+coverage_data <- coverage_data %>% 
+  filter(is.na(Coverage)==FALSE)
+
+nrow(coverage_data)
+
+```
+
+
+
+
+```{r}
+# gp descriptive data
+
+
+# gpp
+gpp_info <- read.csv(file="data\\epraccur.csv", stringsAsFactors=FALSE, header=FALSE)
+
+gpp_info <- gpp_info %>%
+  mutate("pcd_spaceless"=gsub(" ","", V10)) %>%
+  dplyr::select("practice_code"=V1, pcd_spaceless, "ccg_code" = V15)
+
+
+
+gp_staffing <- read.csv("data\\General_Practice_March_2016_Practice_Level.csv", stringsAsFactors=FALSE)
+
+# only select columns we need
+gp_staffing <- gp_staffing %>% dplyr::select(PRAC_CODE,
+                              TOTAL_PATIENTS,
+                              TOTAL_GP_HC,
+                              TOTAL_GP_FTE,
+                              MALE_GP_FTE,
+                              FEMALE_GP_FTE,
+                              TOTAL_NURSES_FTE,
+                              TOTAL_GP_HC_COQ_UK
+                              ) %>% 
+  filter_at(vars(-PRAC_CODE),all_vars(. != "NS")) %>%
+  gather(-PRAC_CODE, key="COL", value="VALUE") %>% 
+  mutate("VALUE"=as.numeric(VALUE)) %>% 
+  spread(COL, VALUE) %>% 
+  mutate(
+    "FEMALE_GP_PROPORTION"=FEMALE_GP_FTE/TOTAL_GP_FTE,
+    "NON_UKQ_GP_PROPORTION"=1-(TOTAL_GP_HC_COQ_UK/TOTAL_GP_HC)
+         ) %>% 
+  mutate(
+    "FEMALE_GP_PROPORTION"=ifelse(is.na(FEMALE_GP_PROPORTION),0,FEMALE_GP_PROPORTION),
+    "NON_UKQ_GP_PROPORTION"=ifelse(is.na(NON_UKQ_GP_PROPORTION),0,NON_UKQ_GP_PROPORTION)
+         )
+
+
+```
+
+
+```{r}
+# load the spatial lookups
+# postcode data
+
+con = dbConnect(SQLite(), dbname="C:\\Users\\User1\\Documents\\Rstudio_Projects\\ONS_Lookup_Database\\ons_lkp_db")
+# dbListTables(con)
+pcd <- dbGetQuery(con, "SELECT pcd_spaceless,  oseast1m, osnrth1m, lsoa11 FROM ONS_PD")
+
+# limit the size of the postcode dataframe to only those postcodes in the gp practice data
+pcd <- pcd %>% filter(pcd_spaceless %in% unique(gpp_info$pcd_spaceless))
+
+
+
+# rural/urban lsoa classification
+# https://ons.maps.arcgis.com/home/item.html?id=9855221596994bde8363a685cb3dd58a
+urban_rural <- read.csv(file="data\\RUC11_LSOA11_EW.csv", stringsAsFactors=FALSE)
+
+
+
+```
+
+
+## Join data
+
+```{r}
+# combine it all
+
+nrow(coverage_data)
+coverage_data_supplemented <- coverage_data %>%
+  inner_join(gp_demographics, by=c("OrganisationCode"="PRACTICE_CODE"))
+
+# ----------
+nrow(coverage_data_supplemented)
+# ----------
+
+coverage_data_supplemented <- coverage_data_supplemented %>%
+  inner_join(imd_2015, by=c("OrganisationCode"="AreaCode"))
+
+# ----------
+nrow(coverage_data_supplemented)
+# ----------
+
+coverage_data_supplemented <- coverage_data_supplemented %>%
+  inner_join(satisfied_opening_hours, by=c("OrganisationCode"="AreaCode"))
+
+# ----------
+nrow(coverage_data_supplemented)
+# ----------
+
+#coverage_data_supplemented <- coverage_data_supplemented %>%
+#  inner_join(gp_info, by=c("OrganisationCode"="practice_code"))
+
+coverage_data_supplemented <- coverage_data_supplemented %>%
+  inner_join(gp_staffing, by=c("OrganisationCode"="PRAC_CODE"))
+
+# ----------
+nrow(coverage_data_supplemented)
+# ----------
+
+coverage_data_supplemented <- coverage_data_supplemented %>%
+  inner_join(gpp_info, by=c("OrganisationCode"="practice_code"))
+
+# ----------
+nrow(coverage_data_supplemented)
+# ----------
+
+coverage_data_supplemented <- coverage_data_supplemented %>%
+  inner_join(pcd, by=c("pcd_spaceless"="pcd_spaceless"))
+
+# ----------
+nrow(coverage_data_supplemented)
+# ----------
+
+coverage_data_supplemented <- coverage_data_supplemented %>%
+  inner_join(urban_rural, by=c("lsoa11"="LSOA11CD"))
+
+# ----------
+nrow(coverage_data_supplemented)
+# ----------
+
+# minor adjustments
+coverage_data_supplemented <- coverage_data_supplemented %>%
+  mutate("osnrth100km"=osnrth1m/100000,
+         "IMD_2015_Rank"=dense_rank(IMD_2015),
+         "IMD_2015_Quintile"=ntile(IMD_2015, 5),
+         "gp_per_1k_eligible_women"=TOTAL_GP_FTE/Eligible*1000,
+         "Urban_Rural"=ifelse(substring(RUC11,1,3)=="Urb", "Urban", "Rural"),
+         "nurses_per_1k_eligible_women"=TOTAL_NURSES_FTE/Eligible*1000)
+
+```
+
+## Fix CCG coding
+
+```{r}
+# Add the ons ccg codes based on lsoa to prevent pain and heartache later on
+# from https://ons.maps.arcgis.com/home/item.html?id=19e5c35c6a504a7b9e1b74bed1b6225f
+ccg_lkp <- read.csv(file="data\\LSOA11_CCG16_LAD16_EN_LU.csv", stringsAsFactors=F)
+
+coverage_data_supplemented <- coverage_data_supplemented %>%
+  left_join(ccg_lkp, by=c("lsoa11"="LSOA11CD"))
+
+```
+
+
+# Exploration
+
+```{r, warning=FALSE, fig.width=10, fig.height=10}
+
+
+# scatterplot matrix 1
+PerformanceAnalytics::chart.Correlation(coverage_data_supplemented[,c(9:19)], method="pearson")
+# scatterplot matrix 2
+PerformanceAnalytics::chart.Correlation(coverage_data_supplemented[,c(9,20,23,26:29, 41, 43)], method="pearson")
+
+
+
+```
+
+```{r, warning=FALSE, message=FALSE}
+
+  ggplot(coverage_data_supplemented, aes(Eligible, Screened, col=Coverage)) +
+  geom_point(alpha=0.1) +
+  geom_smooth(method="lm", se=F, col="red") +
+  #scale_colour_gradient2(mid="#aaaaaa", high="#0571b0", low="#ca0020", midpoint=0.4) +
+  labs(title="Screened vs ELigible",
+       x="Eligible",
+       y="Screened")
+
+
+ggplot(coverage_data_supplemented, aes(Urban_Rural, Coverage)) +
+  geom_boxplot(notch=T, fill="light blue") +
+  coord_flip() +
+  labs(title="Coverage Compared Across Urban and Rural Practices",
+       x="Urban or Rural Practice",
+       y="Coverage (%)")
+
+
+  ggplot(coverage_data_supplemented, aes(IMD_2015_Rank, Coverage)) +
+  geom_point(alpha=0.1) +
+  geom_smooth(method="lm", se=F, col="red") +
+  # facet_wrap(~RUC11) +
+  labs(title="Coverage by IMD 2015 Rank",
+       x="IMD 2015 Rank (1 = least deprived)",
+       y="Coverage (%)")
+
+  
+  
+  ggplot(coverage_data_supplemented, aes(osnrth100km, Coverage)) +
+  geom_point(alpha=0.25)+
+  facet_wrap(~Urban_Rural) +
+  geom_smooth(method="lm", se=F, col="red") +
+  labs(title="Coverage by Distance North",
+       x="Distance North from Origin of OSGB36 Grid (100km units)",
+       y="Coverage (%)")
+  
+
+  
+ggplot(coverage_data_supplemented, aes(Satisfied_Opening_Hours, Coverage)) +
+  geom_point(alpha=0.3) +
+  geom_smooth(method="lm", se=F, col="red") +
+    labs(title="Coverage by Satisfaction With Opening Hours",
+       x="Satisfaction With Opening Hours (%)",
+       y="Coverage (%)")
+
+
+
+
+ethn_plot_data <- gather(coverage_data_supplemented[,c(9:14)], key="Ethnic_Group", value="Percentage", -Coverage)
+
+ggplot(ethn_plot_data, aes(Percentage, Coverage)) +
+  geom_point(alpha=0.3) +
+  facet_wrap(~Ethnic_Group, scale="free") +
+  geom_smooth(method="lm", se=F, col="red") +
+  labs(title="Coverage by Proportion of Ethnic Group Registrants (modelled)",
+       subtitle="Note that axes may vary across sub-plots",
+       x="Percentage of Registrants of Ethnic Group (%)",
+       y="Coverage (%)")
+
+
+
+
+age_plot_data <- gather(coverage_data_supplemented[,c(9,15:18)], key="Age_Group", value="Percentage", -Coverage)
+
+ggplot(age_plot_data, aes(Percentage, Coverage)) +
+  geom_point(alpha=0.3) +
+  facet_wrap(~Age_Group, scale="free") +
+  geom_smooth(method="lm", se=F, col="red") +
+  labs(title="Coverage by Proportion of Age Group Registrants (modelled)",
+       subtitle="Note that axes may vary across sub-plots",
+       x="Percentage of Registrants of Age Group (%)",
+       y="Coverage (%)")
+
+
+ccg_sample <- sample(unique(coverage_data_supplemented$CCG16CD),20)
+
+coverage_data_supplemented %>% 
+  filter(CCG16CD %in% ccg_sample) %>% 
+ggplot(data=., aes(CCG16NM, Coverage)) +
+  geom_boxplot(fill="light blue") +
+  coord_flip() +
+  labs(title="Coverage Distribution by CCG",
+       subtitle="Based on practices from a random sample of 20 CCGs",
+       x="CCG Name",
+       y="Coverage (%)")
+
+
+
+```
+
+
+
+
+# Modelling
+
+## Prep data
+
+```{r}
+# take a copy of the main dataset to use for modelling (some variables will be altered)
+coverage_data_supplemented2 <- coverage_data_supplemented
+# convert percentage variables by dividing by 100
+coverage_data_supplemented2[,9:18] <- coverage_data_supplemented2[,9:18]/100
+coverage_data_supplemented2[,10:18] <- as.vector(coverage_data_supplemented2[,10:18])
+coverage_data_supplemented2$Satisfied_Opening_Hours <- as.vector(coverage_data_supplemented2$Satisfied_Opening_Hours/100)
+
+coverage_data_supplemented2$CCG16CD <- factor(coverage_data_supplemented2$CCG16CD)
+
+
+# No longer used, make any transformations or scalings here
+# coverage_data_supplemented2$IMD_2015_Rank <- as.vector(coverage_data_supplemented2$IMD_2015_Rank)
+# coverage_data_supplemented2$osnrth100km <- as.vector(coverage_data_supplemented2$osnrth100km)
+# coverage_data_supplemented2$gp_number <- as.vector(coverage_data_supplemented2$gp_number)
+# coverage_data_supplemented2$gp_per_1k_eligible_women <- as.vector(coverage_data_supplemented2$gp_per_1k_eligible_women)
+```
+
+
+
+## Summary stats table
+
+# Sumary statistics table
+
+```{r}
+summary_stats <- coverage_data_supplemented2 %>% 
+  dplyr::select(OrganisationCode,
+                Eligible,
+                Screened,
+                Coverage,
+                starts_with("Ethn_"),
+                starts_with("Age_"),
+                IMD_2015,
+                IMD_2015_Rank,
+                Satisfied_Opening_Hours,
+                osnrth100km,
+                gp_per_1k_eligible_women,
+                nurses_per_1k_eligible_women,
+                FEMALE_GP_PROPORTION,
+                NON_UKQ_GP_PROPORTION,
+                TOTAL_PATIENTS,
+                TOTAL_NURSES_FTE) %>%
+  gather(key="Variable", value="Value",-OrganisationCode) %>% 
+  group_by(Variable) %>% 
+  summarise(
+    "n"=n(),
+    "mean"=mean(Value),
+    "sd"=sd(Value),
+    "min"=min(Value),
+    "percentile_25"=quantile(Value, probs=0.25),
+    "median"=median(Value),
+    "percentile_75"=quantile(Value, probs=0.75),
+    "max"=max(Value)
+  )
+
+summary_stats %>%
+      kable(digits=2) %>%
+      kable_styling()
+
+```
+
+## Check multilevel structure
+
+```{r}
+
+# check for multilevel structure
+
+# null multilevel model
+fit_null_multi <- glmer(Coverage ~ (1 | CCG16CD),
+               family=binomial, weights=Eligible,
+               data=coverage_data_supplemented2)
+
+# null  single level model
+fit_null_single <- glm(Coverage ~ 1,
+               family=binomial, weights=Eligible,
+               data=coverage_data_supplemented2)
+
+# compare AIC
+bbmle::AICtab(fit_null_single, fit_null_multi)
+AIC(fit_null_single, fit_null_multi)
+
+
+# Likelihood Ratio Testing
+# create function to perform likelihood ratio test
+# https://stat.ethz.ch/pipermail/r-sig-mixed-models/2008q3/001175.html
+lrt <- function (obj1, obj2) {
+    L0 <- logLik(obj1)
+    L1 <- logLik(obj2)
+    L01 <- as.vector(- 2 * (L0 - L1))
+    df <- attr(L1, "df") - attr(L0, "df")
+    list(L01 = L01, df = df,
+        "p-value" = pchisq(L01, df, lower.tail = FALSE))
+ }
+
+# perform a likelihood ratio test
+lrt(fit_null_single,fit_null_multi)
+
+# note that ANOVA gives identical results
+anova(fit_null_multi, fit_null_single)
+
+```
+
+# Build GLMM model
+
+```{r}
+# 
+# 
+# fit_1a <- glmmTMB(Coverage ~
+#                       Ethn_Asian +
+#                       Ethn_Black +
+#                       #Ethn_Mixed +
+#                       Ethn_Other +
+#                       Age_25_to_49 +
+#                       Age_65_and_over +
+#                       IMD_2015_Rank +
+#                       Satisfied_Opening_Hours +
+#                       gp_per_1k_eligible_women +
+#                       osnrth100km +
+#                       Urban_Rural +
+#                       FEMALE_GP_PROPORTION +
+#                       NON_UKQ_GP_PROPORTION +
+#                       nurses_per_1k_eligible_women +
+#                       Eligible +
+# 
+#                       (1 | CCG16CD),
+# 
+#                family=binomial(link=logit),
+#                weights=Eligible,
+#                data=coverage_data_supplemented2)
+# 
+# summary(fit_1a)
+# my_rsq(fit_1a)
+# 
+# 
+# fit_1b <- glmmTMB(Coverage ~
+#                       Ethn_Asian +
+#                       Ethn_Black +
+#                       Ethn_Mixed +
+#                       #Ethn_Other +
+#                       Age_25_to_49 +
+#                       Age_65_and_over +
+#                       IMD_2015_Rank +
+#                       Satisfied_Opening_Hours +
+#                       gp_per_1k_eligible_women +
+#                       osnrth100km +
+#                       Urban_Rural +
+#                       FEMALE_GP_PROPORTION +
+#                       NON_UKQ_GP_PROPORTION +
+#                       nurses_per_1k_eligible_women +
+#                       Eligible +
+# 
+#                       (1 | CCG16CD),
+# 
+#                family=binomial(link=logit),
+#                weights=Eligible,
+#                data=coverage_data_supplemented2)
+# 
+# summary(fit_1b)
+# my_rsq(fit_1b)
+# 
+# fit_1c <- glmmTMB(Coverage ~
+#                       Ethn_Asian +
+#                       Ethn_Black +
+#                       #Ethn_Mixed +
+#                       #Ethn_Other +
+#                       Age_25_to_49 +
+#                       Age_65_and_over +
+#                       IMD_2015_Rank +
+#                       Satisfied_Opening_Hours +
+#                       gp_per_1k_eligible_women +
+#                       osnrth100km +
+#                       Urban_Rural +
+#                       FEMALE_GP_PROPORTION +
+#                       NON_UKQ_GP_PROPORTION +
+#                       nurses_per_1k_eligible_women +
+#                       Eligible +
+# 
+#                       (1 | CCG16CD),
+# 
+#                family=binomial(link=logit),
+#                weights=Eligible,
+#                data=coverage_data_supplemented2)
+# 
+# summary(fit_1c)
+# my_rsq(fit_1c)
+
+
+# Create the  final model
+
+fit_2 <- glmmTMB(Coverage ~
+                      Ethn_Asian +
+                      Ethn_Black +
+                      Ethn_Mixed +
+                      Ethn_Other +
+                      Age_25_to_49 +
+                      Age_65_and_over +
+                      IMD_2015_Rank +
+                      Satisfied_Opening_Hours +
+                      gp_per_1k_eligible_women +
+                      osnrth100km +
+                      Urban_Rural +
+                      FEMALE_GP_PROPORTION +
+                      NON_UKQ_GP_PROPORTION +
+                      nurses_per_1k_eligible_women +
+                      Eligible +
+
+                      (1 | CCG16CD),
+
+               family=binomial(link=logit),
+               weights=Eligible,
+               data=coverage_data_supplemented2)
+
+summary(fit_2)
+
+
+# perform a likelihood ratio test
+lrt(fit_null_multi, fit_2)
+
+
+
+```
+```{r}
+
+plot(fitted(fit_2,type = "response"), residuals(fit_2))
+
+
+```
+
+
+
+
+## Map residuals too
+
+```{r}
+
+
+coverage_data_supplemented2$residual <- as.vector(residuals(fit_2))
+x <- jitter(coverage_data_supplemented2$oseast1m, amount=0.01)
+y <- jitter(coverage_data_supplemented2$osnrth1m, amount=0.01)
+distMat <- as.matrix(dist(cbind(x, y)))
+invDistMat <- 1/distMat
+diag(invDistMat) <- 0
+MI = ape::Moran.I(coverage_data_supplemented2$residual, weight = invDistMat)
+MI
+
+# tidy up!
+# use sort(sapply(ls(),function(x){object.size(get(x))}))
+rm(invDistMat)
+rm(distMat)
+
+
+
+```
+
+
+## Extract model information
+
+```{r, fig.width=10}
+# Add the fitted values back to the main dataframe
+coverage_data_supplemented2$fitted_values <- fitted(fit_2,type = "response")
+coverage_data_supplemented2$fitted_values_logit <- fitted(fit_2,type = "logit")
+
+
+#predict(fit_2, coverage_data_supplemented3, type = "response") - fitted_values
+
+
+# Add residual quintiles
+coverage_data_supplemented2 <- coverage_data_supplemented2 %>% 
+  mutate("residual_quintile"=ntile(coverage_data_supplemented2$residual,5))
+```
+
+
+
+
+# Inspect random effects
+
+```{r, fig.height=30, fig.width=10}
+
+# caterpillar plot
+
+# get random effects
+random_effects <- ranef(fit_2)
+random_intercept <- random_effects$cond
+
+
+# get variances
+random_effect_var <- TMB::sdreport(fit_2$obj, getJointPrecision=TRUE)
+random_effect_sd <- sqrt(random_effect_var$diag.cov.random)
+
+
+
+
+caterpillar_data <- data.frame(
+                                "intercepts"=random_intercept$CCG16CD$`(Intercept)`,
+                                "sd"=random_effect_sd,
+                                "CCG16CD"=factor(row.names(random_effects$cond$CCG16CD))
+                                )
+
+# calc confidence interval
+caterpillar_data$ucl <- caterpillar_data$intercepts + (caterpillar_data$sd * 1.96)
+caterpillar_data$lcl <- caterpillar_data$intercepts - (caterpillar_data$sd * 1.96)
+
+# categorise for colour coding in plot
+
+caterpillar_data$category <- ifelse(caterpillar_data$lcl > 0, "High",
+                                    ifelse(caterpillar_data$ucl < 0, "Low",
+                                    "Average"))
+
+
+# add in ccg names
+ccg_names <- ccg_lkp %>% group_by(CCG16CD, CCG16NM) %>% summarise()
+ccg_names$CCG16NM <- factor(ccg_names$CCG16NM)
+
+caterpillar_data <- caterpillar_data %>% left_join(ccg_names)
+
+# reorder the ccg names factor
+caterpillar_data$CCG16NM_B <- fct_reorder(caterpillar_data$CCG16NM, caterpillar_data$intercepts)
+
+# add quintiles
+caterpillar_data$intercepts_quintile <- fct_rev(factor(ntile(caterpillar_data$intercepts, 5)))
+
+# Caterpillar plot
+ggplot(caterpillar_data,
+       aes(CCG16NM_B,
+           intercepts,
+           colour=category)) +
+geom_hline(yintercept=0) +
+geom_point(size=4)  +
+  geom_errorbar(aes(ymin=lcl, ymax=ucl)) +
+scale_colour_manual(values=c("grey", "#0571b0","#ca0020")) +
+guides(size=FALSE,
+       shape=FALSE) +
+xlab("Levels") +
+ylab("") +
+theme(axis.text.x=element_text(size=rel(1.2)),
+               axis.title.x=element_text(size=rel(1.3)),
+               axis.text.y=element_text(size=rel(1.2)),
+               panel.grid.minor=element_blank(),
+               panel.grid.major.x=element_blank()) +
+  coord_flip()
+
+
+```
+
+```{r}
+# plot a histogram of the ccg residuals
+
+ggplot(caterpillar_data, aes(intercepts)) +
+  geom_histogram(col="black",fill="grey", bins=20) +
+  geom_vline(xintercept=0, col="red", lty=2, size=1) +
+  theme_bw() +
+  labs(title="Histogram of CCG Level Random Effects",
+       x="Random Effects",
+       y="Count")
+
+qqnorm(caterpillar_data$intercepts); qqline(caterpillar_data$intercepts, col = 2,lwd=2,lty=2)
+
+
+```
+
+# Inspect coefficients
+
+```{r}
+# here we add some extra columns to quantify how much each coefficient affects the overall coverage
+
+# get model coefficients:
+model_coefs <- data.frame(summary(fit_2)$coef$cond)
+model_coefs$Coef <- row.names(model_coefs)
+
+# join these to summary_stats to generate value for 'average' practice as an example
+
+# look at how changing practice characteristics affects the coverage
+summary_stats_2 <- summary_stats %>%
+  left_join(model_coefs, by=c("Variable"="Coef")) %>% 
+  dplyr::select(Variable,mean,median,percentile_25,percentile_75, "Coefficient"=Estimate) %>% 
+  filter(is.na(Coefficient)==F) %>% 
+  mutate("Mean_Value"=Coefficient*mean,
+         "Percentile_25_Value"=Coefficient*percentile_25,
+         "Percentile_75_Value"=Coefficient*percentile_75) %>% 
+  arrange(desc(abs(Mean_Value)))
+
+summary_stats_2 %>%
+      kable(digits=2) %>%
+      kable_styling()
+
+```
+
+
+
+```{r}
+
+# pull out the coefficients in a format ready to go into the main dataframe
+model_coefs <- model_coefs %>% 
+  dplyr::select(Coef, Estimate) %>% 
+  mutate("Coef"=ifelse(Coef=="(Intercept)","Intercept",Coef)) %>%
+  mutate("Coef"=paste0("coef_",Coef)) %>% 
+  spread(Coef, Estimate)
+
+# get the CCG intercepts in a format to go into the main dataframe
+ccg_intercepts <- caterpillar_data %>% dplyr::select(CCG16CD, "CCG_intercept"=intercepts)
+
+# add CCG intercepts to main dataframe
+coverage_data_supplemented3 <- coverage_data_supplemented2 %>% 
+  left_join(ccg_intercepts, by="CCG16CD")
+
+# add the model coefficients to the main dataframe
+coverage_data_supplemented3 <- cbind(coverage_data_supplemented3, model_coefs)  
+
+
+# now calculate the fitted values
+coverage_data_supplemented3 <- coverage_data_supplemented3 %>% 
+  mutate(
+    "Urban_Rural_Coded"=ifelse(Urban_Rural=="Urban",1,0),
+    
+           "Result_Age_25_49"=(Age_25_to_49*coef_Age_25_to_49),
+           "Result_Age_65_and_over"=(Age_65_and_over*coef_Age_65_and_over),
+           "Result_Ethn_Asian"=(Ethn_Asian*coef_Ethn_Asian),
+           "Result_Ethn_Black"=(Ethn_Black*coef_Ethn_Black),
+           "Result_Ethn_Mixed"=(Ethn_Mixed*coef_Ethn_Mixed),
+           "Result_Ethn_Other"=(Ethn_Other*coef_Ethn_Other),
+           "Result_gp_per_1k"=(gp_per_1k_eligible_women*coef_gp_per_1k_eligible_women),
+           "Result_IMD_2015_Rank"=(IMD_2015_Rank*coef_IMD_2015_Rank),
+           "Result_osnrth100km"=(osnrth100km*coef_osnrth100km),
+           "Result_Satisfied_Opening"=(Satisfied_Opening_Hours*coef_Satisfied_Opening_Hours),
+           "Result_Urban_Rural"=(Urban_Rural_Coded*coef_Urban_RuralUrban),
+           "Result_FEMALE_GP_PROPORTION"=(FEMALE_GP_PROPORTION*coef_FEMALE_GP_PROPORTION),
+           "Result_NON_UKQ_GP_PROPORTION"=(NON_UKQ_GP_PROPORTION*coef_NON_UKQ_GP_PROPORTION), 
+           "Result_nurses_per_1k"=(nurses_per_1k_eligible_women*coef_nurses_per_1k_eligible_women),
+           "Result_Eligible"=(Eligible*coef_Eligible),
+    
+    "test_log_odds"= CCG_intercept +
+                         coef_Intercept +
+                         (Age_25_to_49*coef_Age_25_to_49) +
+                         (Age_65_and_over*coef_Age_65_and_over) +
+                         (Ethn_Asian*coef_Ethn_Asian) +
+                         (Ethn_Black*coef_Ethn_Black) +
+                         (Ethn_Mixed*coef_Ethn_Mixed) +
+                         (Ethn_Other*coef_Ethn_Other) +
+                         (gp_per_1k_eligible_women*coef_gp_per_1k_eligible_women) +
+                         (IMD_2015_Rank*coef_IMD_2015_Rank) +
+                         (osnrth100km*coef_osnrth100km) +
+                         (Satisfied_Opening_Hours*coef_Satisfied_Opening_Hours) +
+                         (Urban_Rural_Coded*coef_Urban_RuralUrban) +
+                         (FEMALE_GP_PROPORTION*coef_FEMALE_GP_PROPORTION) +
+                         (NON_UKQ_GP_PROPORTION*coef_NON_UKQ_GP_PROPORTION) +
+                         (nurses_per_1k_eligible_women*coef_nurses_per_1k_eligible_women) +
+                         (Eligible*coef_Eligible),
+    "test_odds"=exp(test_log_odds),
+    "test_prob"=test_odds/(1+test_odds))
+
+
+
+
+
+
+```
+
+
+
+
+# Spatial analysis
+
+```{r, fig.width=10}
+
+# Mapping the random effects
+path <- ".\\shp\\CCG_April_2016_UGC_V4"
+
+ccg_shp <- readOGR(dsn=path,
+        layer="Clinical_Commissioning_Groups_April_2016_Generalised_Clipped_Boundaries_in_England",
+        stringsAsFactors=FALSE)
+
+
+ccg_shp <- sp::merge(ccg_shp,
+                     caterpillar_data,
+                     by.x="ccg16cd",
+                     by.y="CCG16CD",
+                     sort = FALSE)
+
+
+
+# define a function to handle tidying (which used to be called fortifying) and then joining the data items back in
+clean <- function(shape){
+                          shape@data$id = rownames(shape@data)
+                          shape.points = tidy(shape, region="id")
+                          shape.df = inner_join(shape.points, shape@data, by="id")
+}
+
+ccg_shp_tidy <- clean(ccg_shp)
+
+
+
+ggplot(ccg_shp_tidy, aes(long, lat, fill=category, group=group)) +
+  geom_polygon(col="white", size=0.005) +
+  coord_fixed() +
+  scale_fill_manual(values=c("grey", "#0571b0","#ca0020")) +
+  theme_void()
+
+```
+
+```{r, fig.width=8, fig.height=10}
+# check for clustering of random effects
+# remember to reset oa_shp_data as it's filtered in the previous script
+neighbourhood <- spdep::poly2nb(ccg_shp, queen=TRUE)
+
+{
+  par(mar=c(0,0,0,0))
+  plot(ccg_shp,
+      border="grey")
+  plot(neighbourhood,
+     coords=coordinates(ccg_shp),
+     col="red",
+     add=T)
+  }
+
+```
+
+
+```{r}
+# Now create a neighbourhood weights matrix
+neighbourhood_weights_list <- nb2listw(neighbourhood, style="W", zero.policy=TRUE)
+
+# and run the moran's I test
+moran.test(ccg_shp$intercepts,neighbourhood_weights_list, zero.policy=T)
+
+```
+
+## Local Moran's I
+
+```{r}
+
+# Local Moran
+LM_Results <- localmoran(ccg_shp$intercepts,
+                         neighbourhood_weights_list,
+           p.adjust.method="bonferroni",
+           na.action=na.exclude,
+           zero.policy=TRUE)
+
+summary(LM_Results)
+
+```
+
+```{r}
+# add moran's I results back to the shapefile
+ccg_shp@data$lmoran_i <- LM_Results[,1]
+ccg_shp@data$lmoran_p <- LM_Results[,5]
+ccg_shp@data$lmoran_sig <- LM_Results[,5]<0.01
+
+
+# manually make a moran plot based on standardised variables
+# standardise variables and save to a new column
+ccg_shp$SCALED_INTERCEPT <- scale(ccg_shp$intercepts)
+
+# create a lagged variable
+ccg_shp$LAGGED_SCALED_INTERCEPT <- lag.listw(neighbourhood_weights_list, ccg_shp$SCALED_INTERCEPT)
+
+
+ccg_shp$SPATIAL_LAG_CAT <- factor(ifelse(ccg_shp$SCALED_INTERCEPT>0 & ccg_shp$LAGGED_SCALED_INTERCEPT>0, "High-High",
+       ifelse(ccg_shp$SCALED_INTERCEPT>0 & ccg_shp$LAGGED_SCALED_INTERCEPT<0, "High-Low",
+              ifelse(ccg_shp$SCALED_INTERCEPT<0 & ccg_shp$LAGGED_SCALED_INTERCEPT<0, "Low-Low",
+                     ifelse(ccg_shp$SCALED_INTERCEPT<0 & ccg_shp$LAGGED_SCALED_INTERCEPT>0, "Low-High",
+       "Equivalent")))))
+
+
+```
+
+
+```{r}
+
+ggplot(ccg_shp@data, aes(SCALED_INTERCEPT, LAGGED_SCALED_INTERCEPT, colour=lmoran_p)) +
+  geom_point(alpha=0.5, size=3) +
+  geom_smooth(method="lm", se=F, col="red") +
+  geom_hline(yintercept=0, lty=2) +
+  geom_vline(xintercept=0, lty=2) +
+  theme_bw() +
+  labs(title="Scaled Spatial Lag Comparison",
+       x="Scaled Value",
+       y="Lagged Scaled Value")
+
+```
+
+
+
+```{r, fig.width=8, fig.height=10}
+
+# set id columns to merge local moran's results back to the shapefile
+ccg_shp@data$id <- row.names(ccg_shp@data)
+
+# tidy the shapefile
+ccg_shp_tidy <- tidy(ccg_shp,region="id")
+ccg_shp_tidy <- merge(ccg_shp_tidy,ccg_shp@data,by="id")
+
+
+ccg_shp_tidy_sig_high_high <- ccg_shp_tidy[ccg_shp_tidy$lmoran_sig==T & ccg_shp_tidy$SPATIAL_LAG_CAT=="High-High",]
+ccg_shp_tidy_sig_low_low <- ccg_shp_tidy[ccg_shp_tidy$lmoran_sig==T & ccg_shp_tidy$SPATIAL_LAG_CAT=="Low-Low",]
+
+ggplot() +
+  geom_polygon(data=ccg_shp_tidy, aes(long, lat, fill=lmoran_sig, group=group),fill="grey",col="white") +
+  geom_polygon(data=ccg_shp_tidy_sig_high_high, aes(long, lat, fill=lmoran_sig, group=group),fill="#0571b0",col="white") +
+  geom_polygon(data=ccg_shp_tidy_sig_low_low, aes(long, lat, fill=lmoran_sig, group=group),fill="#ca0020",col="white") +
+  coord_fixed() +
+  theme_void()
+
+```
+
+
+```{r}
+
+# extra row is the Isle of White
+ccg_shp_tidy_sig_high_high %>% ungroup() %>% group_by(CCG16NM) %>% summarise(n())
+ccg_shp_tidy_sig_low_low %>% group_by(CCG16NM) %>% summarise(n())
+
+```

@@ -1,0 +1,7 @@
+"0","  ggplot(coverage_data_supplemented, aes(IMD_2015_Rank, Coverage)) +"
+"0","  geom_point(alpha=0.1) +"
+"0","  geom_smooth(method=""lm"", se=F, col=""red"") +"
+"0","  # facet_wrap(~RUC11) +"
+"0","  labs(title=""Coverage by IMD 2015 Rank"","
+"0","       x=""IMD 2015 Rank (1 = least deprived)"","
+"0","       y=""Coverage (%)"")"

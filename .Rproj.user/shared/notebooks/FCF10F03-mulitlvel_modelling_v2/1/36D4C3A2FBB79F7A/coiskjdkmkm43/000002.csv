@@ -1,0 +1,9 @@
+"0","# scatterplot matrix 2
+PerformanceAnalytics::chart.Correlation(coverage_data_supplemented[,c(9,20,23,26:29, 41)], method=""pearson"")
+"
+"2","
+Package PerformanceAnalytics (1.5.2) loaded.
+Copyright (c) 2004-2018 Peter Carl and Brian G. Peterson, GPL-2 | GPL-3
+https://github.com/braverock/PerformanceAnalytics
+
+"

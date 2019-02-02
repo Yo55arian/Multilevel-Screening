@@ -1,0 +1,6 @@
+"0","ggplot(coverage_data_supplemented, aes(Urban_Rural, Coverage)) +"
+"0","  geom_boxplot(notch=T, fill=""light blue"") +"
+"0","  coord_flip() +"
+"0","  labs(title=""Coverage Compared Across Urban and Rural Practices"","
+"0","       x=""Urban or Rural Practice"","
+"0","       y=""Coverage (%)"")"

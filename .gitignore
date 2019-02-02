@@ -1,0 +1,10 @@
+data/
+rsconnect/
+shp/
+.RData
+.Rhistory
+model_coeffs.csv
+mulitlvel_modelling_v1.html
+mulitlvel_modelling_v1.Rmd
+mulitlvel_modelling_v2.html
+Multilevel_model_screening.Rproj

@@ -1,0 +1,7 @@
+"0","  ggplot(coverage_data_supplemented, aes(Eligible, Screened, col=Coverage)) +"
+"0","  geom_point(alpha=0.1) +"
+"0","  geom_smooth(method=""lm"", se=F, col=""red"") +"
+"0","  #scale_colour_gradient2(mid=""#aaaaaa"", high=""#0571b0"", low=""#ca0020"", midpoint=0.4) +"
+"0","  labs(title=""Screened vs ELigible"","
+"0","       x=""Eligible"","
+"0","       y=""Screened"")"

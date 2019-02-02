@@ -1,0 +1,28 @@
+"0","# test spatial autocorrelation
+# note coordinates are jittered by 1m to account for practices sharing premises
+# without jitter the moran's I function cannot calculate a distance matrix
+testSpatialAutocorrelation(simulationOutput = simulationOutput,
+                           x = jitter(coverage_data_supplemented2$oseast1m, amount=1),
+                           y = jitter(coverage_data_supplemented2$osnrth1m, amount=1),
+                           plot=TRUE)
+"
+"1","
+"
+"1","	DHARMa Moran's I test for spatial autocorrelation"
+"1","
+"
+"1","
+"
+"1","data:  "
+"1","simulationOutput"
+"1","
+"
+"1","observed = 0.00545010, expected = -0.00013916, sd = 0.00584700, p-value = 0.3391"
+"1","
+"
+"1","alternative hypothesis: "
+"1","Spatial autocorrelation"
+"1","
+"
+"1","
+"

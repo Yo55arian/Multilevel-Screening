@@ -1,0 +1,8 @@
+"0","  "
+"0","  "
+"0","ggplot(coverage_data_supplemented, aes(Satisfied_Opening_Hours, Coverage)) +"
+"0","  geom_point(alpha=0.3) +"
+"0","  geom_smooth(method=""lm"", se=F, col=""red"") +"
+"0","    labs(title=""Coverage by Satisfaction With Opening Hours"","
+"0","       x=""Satisfaction With Opening Hours (%)"","
+"0","       y=""Coverage (%)"")"

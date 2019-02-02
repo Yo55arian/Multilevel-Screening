@@ -1,0 +1,5 @@
+"0","moran.test(coverage_data_supplemented2$residual, invDistMat)
+"
+"2","Error in moran.test(coverage_data_supplemented2$residual, invDistMat) : 
+  invDistMat is not a listw object
+"
