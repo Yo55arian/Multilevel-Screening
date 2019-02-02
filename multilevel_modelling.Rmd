@@ -88,9 +88,6 @@ gp_lsoa_catch <- gp_lsoa_catch %>%
   left_join(LSOA_POP) %>% 
   mutate("PERCENTAGE_OF_LSOA"=FEMALE_PATIENTS/TOTAL_FEMALE)
 
-
-
-
 # Calc weighted ethnicity
 gp_lsoa_catch <- gp_lsoa_catch %>%  
   left_join(lsoa_ethnic_demographics, by=c("LSOA_CODE"="LSOA"))
