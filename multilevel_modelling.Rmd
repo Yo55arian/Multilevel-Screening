@@ -96,7 +96,6 @@ gp_lsoa_catch <- gp_lsoa_catch %>%
 gp_lsoa_catch[,9:13] <- (gp_lsoa_catch[,9:13] * gp_lsoa_catch$PERCENTAGE_OF_LSOA)
 
 
-
 # Calc weighted age bands
 gp_lsoa_catch <- gp_lsoa_catch %>%  
   left_join(lsoa_age_demographics, by=c("LSOA_CODE"="LSOA"))
