@@ -440,8 +440,51 @@ ggplot(data=., aes(CCG16NM, Coverage)) +
 
 ```
 
+## Additional Exploration of Ethnicity Data
+
+```{r, fig.width=9}
+
+coverage_data_supplemented %>% 
+  dplyr::select(OrganisationCode,
+         Coverage,
+         IMD_2015_Quintile,
+         Ethn_Asian,
+         Ethn_Black,
+         Ethn_Mixed,
+         Ethn_Other,
+         Ethn_White) %>%
+  gather(key="Ethnic_Group", value="Population_Proportion",-Coverage, -IMD_2015_Quintile, -OrganisationCode) %>% 
+  mutate("Coverage"=Coverage/100,
+         "Population_Proportion"=Population_Proportion/100) %>%
+  ggplot(data=., aes(log(Population_Proportion), Coverage)) +
+  geom_point(alpha=0.1) +
+  geom_smooth(method="lm", se=F, col="red") +
+  facet_grid(IMD_2015_Quintile~Ethnic_Group) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1))
 
 
+
+
+coverage_data_supplemented %>% 
+  dplyr::select(OrganisationCode,
+         Coverage,
+         IMD_2015,
+         Ethn_Asian,
+         Ethn_Black,
+         Ethn_Mixed,
+         Ethn_Other,
+         Ethn_White) %>%
+  gather(key="Ethnic_Group", value="Population_Proportion",-Coverage, -IMD_2015, -OrganisationCode) %>% 
+  mutate("Coverage"=Coverage/100,
+         "Population_Proportion"=Population_Proportion/100) %>%
+  ggplot(data=., aes(log(Population_Proportion), IMD_2015, col=Coverage)) +
+  geom_point(alpha=0.1) +
+  facet_wrap(~Ethnic_Group) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1))
+
+
+```
 
 # Modelling
 
