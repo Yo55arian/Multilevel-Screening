@@ -486,6 +486,66 @@ coverage_data_supplemented %>%
 
 ```
 
+# Principal Component Analysis
+
+```{r, fig.width=9}
+
+# create a dataset of potential features to include in the model
+pca_data <- coverage_data_supplemented[,c(
+                                          "Ethn_Asian",
+                                          "Ethn_Black",
+                                          "Ethn_Mixed",
+                                          "Ethn_Other",
+                                          "Ethn_White",
+                                          "Age_0_to_24",
+                                          "Age_25_to_49",
+                                          "Age_50_to_64",
+                                          "Age_65_and_over",
+                                          "IMD_2015_Rank",
+                                          "Satisfied_Opening_Hours",
+                                          "gp_per_1k_eligible_women",
+                                          "osnrth100km",
+                                          "FEMALE_GP_PROPORTION",
+                                          "NON_UKQ_GP_PROPORTION",
+                                          "nurses_per_1k_eligible_women",
+                                          "Eligible")]
+
+# run PCA
+pca_results <- prcomp(pca_data,
+       center = TRUE,
+       scale. = TRUE)
+
+# PCA Results
+summary(pca_results)
+plot(pca_results)
+
+# extract PCA rotation info
+pca_rotation_df <- as.data.frame(pca_results$rotation)
+pca_rotation_df$Var <- rownames(pca_rotation_df)
+
+# calculate absolute contributions to each rotation
+abs_pca_rotations <- abs(pca_results$rotation)
+pca_abs_rotation_df <- as.data.frame(sweep(abs_pca_rotations, 2, colSums(abs_pca_rotations), "/"))
+pca_abs_rotation_df$Var <- rownames(pca_abs_rotation_df)
+
+
+# plot contributions
+pca_abs_rotation_df %>% 
+  gather(-Var, key=PC, value=value) %>% 
+  mutate("PC"=factor(PC, ordered=T, levels=paste0("PC",1:20))) %>% 
+ggplot(data=., aes(PC, Var, fill=value)) +
+  geom_tile() +
+  geom_text(aes(label=paste0(round(value,2)*100,"%")), size=2.5) +
+  scale_fill_distiller(palette = "GnBu", direction=1)
+
+```
+
+
+
+
+
+
+
 # Modelling
 
 ## Prep data
