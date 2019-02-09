@@ -760,7 +760,6 @@ fit_2 <- glmer(Coverage ~
                       Age_65_and_over +
                       IMD_2015_Rank +
                       Satisfied_Opening_Hours +
-                      gp_per_1k_eligible_women +
                       osnrth100km +
                       Urban_Rural +
                       FEMALE_GP_PROPORTION +
