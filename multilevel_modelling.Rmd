@@ -657,6 +657,10 @@ coverage_data_supplemented2$CCG16CD <- factor(coverage_data_supplemented2$CCG16C
 # coverage_data_supplemented2$osnrth100km <- as.vector(coverage_data_supplemented2$osnrth100km)
 # coverage_data_supplemented2$gp_number <- as.vector(coverage_data_supplemented2$gp_number)
 # coverage_data_supplemented2$gp_per_1k_eligible_women <- as.vector(coverage_data_supplemented2$gp_per_1k_eligible_women)
+
+# Remove practices with zero nurses
+coverage_data_supplemented2 <- coverage_data_supplemented2 %>% filter(nurses_per_1k_eligible_women>0)
+
 ```
 
 
