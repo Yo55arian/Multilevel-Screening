@@ -23,7 +23,6 @@ library("tidyr")
 library("reshape2")
 library("fingertipsR")
 library("RSQLite")
-library("glmmTMB")
 library("lme4")
 library("lmerTest")
 library("bbmle")
@@ -748,7 +747,7 @@ anova(fit_null_multi, fit_null_single)
 
 ```{r}
 
-fit_2 <- glmmTMB(Coverage ~
+fit_2 <- glmer(Coverage ~
                       Ethn_Asian +
                       Ethn_Black +
                       Ethn_Mixed +
