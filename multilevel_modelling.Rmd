@@ -758,7 +758,7 @@ fit_2 <- glmer(Coverage ~
                       Ethn_Other +
                       Age_25_to_49 +
                       Age_65_and_over +
-                      IMD_2015_Rank +
+                      IMD_2015 +
                       Satisfied_Opening_Hours +
                       osnrth100km +
                       Urban_Rural +
