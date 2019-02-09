@@ -662,8 +662,11 @@ coverage_data_supplemented2$CCG16CD <- factor(coverage_data_supplemented2$CCG16C
 coverage_data_supplemented2 <- coverage_data_supplemented2 %>% filter(nurses_per_1k_eligible_women>0)
 # Remove practices with more than 10 nurses per 1k
 coverage_data_supplemented2 <- coverage_data_supplemented2 %>% filter(nurses_per_1k_eligible_women<10)
-# Transform nurses per 1k
+# Log transform nurses per 1k
 coverage_data_supplemented2$nurses_per_1k_eligible_women_log <- log(coverage_data_supplemented2$nurses_per_1k_eligible_women)
+
+# Log transform eligible
+coverage_data_supplemented2$Eligible_log <- log(coverage_data_supplemented2$Eligible)
 
 ```
 
@@ -769,7 +772,7 @@ fit_2 <- glmer(Coverage ~
                       FEMALE_GP_PROPORTION +
                       NON_UKQ_GP_PROPORTION +
                       nurses_per_1k_eligible_women_log +
-                      #Eligible +
+                      Eligible_log +
 
                       (1 | CCG16CD),
 
