@@ -600,6 +600,36 @@ coverage_data_supplemented %>%
 
 ```
 
+## Eligible and total population numbers
+
+```{r}
+
+## Eligible pop
+
+# over view of relationship looks linear as would be expected
+coverage_data_supplemented %>% 
+  ggplot(data=., aes(Eligible, Screened)) + geom_point()
+
+
+# look for extremes and logical inconsistencies
+coverage_data_supplemented %>% 
+  filter(Eligible == Screened | Eligible == 0)
+
+## Total pop
+# interpret with caution, I don't use total patient numbers in the model,
+# it comes from the workforce dataset which is based on a survey rather than 'actual' numbers registered
+coverage_data_supplemented %>% 
+  filter(TOTAL_PATIENTS==0 |
+           TOTAL_PATIENTS < Eligible |
+           TOTAL_PATIENTS < Screened)
+
+
+ggplot(coverage_data_supplemented, aes(TOTAL_PATIENTS, Eligible, colour=Coverage)) +
+         geom_point()
+
+
+
+```
 
 
 
