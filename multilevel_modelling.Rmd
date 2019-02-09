@@ -538,8 +538,67 @@ ggplot(data=., aes(PC, Var, fill=value)) +
 
 ```
 
+# Additional Exploration to address reviewer comments
+
+The following variables caused convergence issues in the model and will be investigated, any issues addressed and then the model rerun.
+
+ - gp_per_1k_eligible_women
+ - nurses_per_1k_eligible_women
+ - Eligible
+ - IMD_2015_Rank
 
 
+## gp_per_1k_eligible_women
+```{r}
+
+coverage_data_supplemented %>% 
+  ggplot(data=., aes(gp_per_1k_eligible_women, Coverage)) + geom_point(alpha=0.25)
+
+
+coverage_data_supplemented %>% 
+  dplyr::select(Organisation,
+         OrganisationCode,
+         Screened,
+         Eligible,
+         Coverage,
+         TOTAL_GP_FTE,
+         gp_per_1k_eligible_women) %>% 
+  filter(gp_per_1k_eligible_women==0) %>% 
+  summarise(n())
+
+# 283 practices with 0 GPs
+```
+## nurses_per_1k_eligible_women
+
+```{r}
+
+coverage_data_supplemented %>% 
+  ggplot(data=., aes(nurses_per_1k_eligible_women, Coverage)) + geom_point(alpha=0.25)
+
+
+coverage_data_supplemented %>% 
+  dplyr::select(Organisation,
+         OrganisationCode,
+         Screened,
+         Eligible,
+         Coverage,
+         TOTAL_GP_FTE,
+         nurses_per_1k_eligible_women) %>% 
+  filter(nurses_per_1k_eligible_women==0) %>% 
+  summarise(n())
+
+# 291 practices with 0 nursing staff
+```
+
+### Are these the same practices?
+
+```{r}
+
+# Only 53 are zero for both staff groups
+coverage_data_supplemented %>% 
+  filter(nurses_per_1k_eligible_women==0 & gp_per_1k_eligible_women==0)
+
+```
 
 
 
