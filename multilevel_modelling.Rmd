@@ -660,6 +660,8 @@ coverage_data_supplemented2$CCG16CD <- factor(coverage_data_supplemented2$CCG16C
 
 # Remove practices with zero nurses
 coverage_data_supplemented2 <- coverage_data_supplemented2 %>% filter(nurses_per_1k_eligible_women>0)
+# Remove practices with more than 10 nurses per 1k
+coverage_data_supplemented2 <- coverage_data_supplemented2 %>% filter(nurses_per_1k_eligible_women<10)
 
 ```
 
