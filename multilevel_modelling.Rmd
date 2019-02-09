@@ -615,6 +615,10 @@ coverage_data_supplemented %>%
 coverage_data_supplemented %>% 
   filter(Eligible == Screened | Eligible == 0)
 
+# none noted
+
+
+
 ## Total pop
 # interpret with caution, I don't use total patient numbers in the model,
 # it comes from the workforce dataset which is based on a survey rather than 'actual' numbers registered
@@ -623,6 +627,7 @@ coverage_data_supplemented %>%
            TOTAL_PATIENTS < Eligible |
            TOTAL_PATIENTS < Screened)
 
+# 2 practices
 
 ggplot(coverage_data_supplemented, aes(TOTAL_PATIENTS, Eligible, colour=Coverage)) +
          geom_point()
