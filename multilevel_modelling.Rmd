@@ -460,7 +460,6 @@ coverage_data_supplemented %>%
   geom_point(alpha=0.1) +
   geom_smooth(method="lm", se=F, col="red") +
   facet_grid(IMD_2015_Quintile~Ethnic_Group) +
-  scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
   scale_y_continuous(labels = scales::percent_format(accuracy = 1))
 
 
@@ -480,8 +479,7 @@ coverage_data_supplemented %>%
          "Population_Proportion"=Population_Proportion/100) %>%
   ggplot(data=., aes(log(Population_Proportion), IMD_2015, col=Coverage)) +
   geom_point(alpha=0.1) +
-  facet_wrap(~Ethnic_Group) +
-  scale_x_continuous(labels = scales::percent_format(accuracy = 1))
+  facet_wrap(~Ethnic_Group)
 
 
 ```
