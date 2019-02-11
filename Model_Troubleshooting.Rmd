@@ -9,60 +9,49 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+
+```{r, warning=FALSE, message=FALSE}
+library("knitr")
+library("ggplot2"); theme_set(theme_bw())
+library("dplyr")
+library("tidyr")
+library("reshape2")
+library("fingertipsR")
+library("RSQLite")
+library("lme4")
+library("lmerTest")
+library("bbmle")
+library("forcats")
+library("rgdal")
+library("rgeos")
+library("maptools")
+library("broom")
+library("PerformanceAnalytics") # for scatterplot matrix
+library("spdep") # for poly2nb
+library("ape") # for moran's I
+library("arm") # to get se.ranef function
+library("kableExtra") # to make tables nicer
+```
+
 # Modelling
 
-## Prep data
+## Take a copy of dataset
 
 ```{r}
+load(".RDATA")
+
 # take a copy of the main dataset to use for modelling (some variables will be altered)
 coverage_data_supplemented2 <- coverage_data_supplemented
 
-
 ```
-
-
-
-```{r}
-# convert percentage variables by dividing by 100
-coverage_data_supplemented2[,9:18] <- coverage_data_supplemented2[,9:18]/100
-coverage_data_supplemented2[,10:18] <- as.vector(coverage_data_supplemented2[,10:18])
-coverage_data_supplemented2$Satisfied_Opening_Hours <- as.vector(coverage_data_supplemented2$Satisfied_Opening_Hours/100)
-
-coverage_data_supplemented2$CCG16CD <- factor(coverage_data_supplemented2$CCG16CD)
-
-
-# No longer used, make any transformations or scalings here
-# coverage_data_supplemented2$IMD_2015_Rank <- as.vector(coverage_data_supplemented2$IMD_2015_Rank)
-# coverage_data_supplemented2$osnrth100km <- as.vector(coverage_data_supplemented2$osnrth100km)
-# coverage_data_supplemented2$gp_number <- as.vector(coverage_data_supplemented2$gp_number)
-# coverage_data_supplemented2$gp_per_1k_eligible_women <- as.vector(coverage_data_supplemented2$gp_per_1k_eligible_women)
-
-# Remove practices with zero nurses
-coverage_data_supplemented2 <- coverage_data_supplemented2 %>% filter(nurses_per_1k_eligible_women>0)
-
-# Remove practices with more than 10 nurses per 1k
-coverage_data_supplemented2 <- coverage_data_supplemented2 %>% filter(nurses_per_1k_eligible_women<10)
-
-# Log transform nurses per 1k
-coverage_data_supplemented2$nurses_per_1k_eligible_women_log <- log(coverage_data_supplemented2$nurses_per_1k_eligible_women)
-
-# Sqrt transform IMD 2015
-coverage_data_supplemented2$IMD_2015_sqrt <- sqrt(coverage_data_supplemented2$IMD_2015)
-
-```
-
 
 
 ## Summary stats table
 
-# Sumary statistics table
-
 ```{r}
 ccg_summary_stats <- coverage_data_supplemented2 %>% 
   dplyr::select(OrganisationCode,
-                CCG16CD,
                 Eligible,
-                #Eligible_log
                 Screened,
                 Coverage,
                 starts_with("Ethn_"),
@@ -73,13 +62,12 @@ ccg_summary_stats <- coverage_data_supplemented2 %>%
                 osnrth100km,
                 gp_per_1k_eligible_women,
                 nurses_per_1k_eligible_women,
-                #nurses_per_1k_eligible_women_log
                 FEMALE_GP_PROPORTION,
                 NON_UKQ_GP_PROPORTION,
                 TOTAL_PATIENTS,
                 TOTAL_NURSES_FTE) %>%
-  gather(key="Variable", value="Value",-OrganisationCode, -CCG16CD) %>% 
-  group_by(CCG16CD, Variable) %>% 
+  gather(key="Variable", value="Value",-OrganisationCode) %>% 
+  group_by(Variable) %>% 
   summarise(
     "n"=n(),
     "mean"=mean(Value),
@@ -92,62 +80,32 @@ ccg_summary_stats <- coverage_data_supplemented2 %>%
   )
 
 
-ccg_summary_stats
-
-#write.csv(file="ccg_summary.csv", x=ccg_summary_stats, row.names=F)
+summary_stats %>%
+      kable(digits=2) %>%
+      kable_styling()
 
 
 ```
 
+## Prep Table for model building
+
 ```{r}
+# convert percentage variables by dividing by 100
+coverage_data_supplemented2[,9:18] <- coverage_data_supplemented2[,9:18]/100
+coverage_data_supplemented2[,10:18] <- as.vector(coverage_data_supplemented2[,10:18])
+coverage_data_supplemented2$Satisfied_Opening_Hours <- as.vector(coverage_data_supplemented2$Satisfied_Opening_Hours/100)
 
-glmer(Coverage ~
-                      #Ethn_Asian +
-                      #Ethn_Black +
-                      #Ethn_Mixed +
-                      #Ethn_Other +
-                      #Age_25_to_49 +
-                      #Age_65_and_over +
-                      #scale(IMD_2015_sqrt) +
-                      #Satisfied_Opening_Hours +
-                      #osnrth100km +
-                      #Urban_Rural +
-                      #FEMALE_GP_PROPORTION +
-                      #NON_UKQ_GP_PROPORTION +
-                      #scale(nurses_per_1k_eligible_women_log) +
-                      Eligible_log +
-
-                      (1 | CCG16CD),
-
-               family=binomial(link=logit),
-               weights=Eligible,
-               data=coverage_data_supplemented2)
-
+coverage_data_supplemented2$CCG16CD <- factor(coverage_data_supplemented2$CCG16CD)
 ```
 
 
-# Build GLMM model
+
+
+## Simple model with just Eligible population and no multilevel structure
+
+Some plots first
 
 ```{r}
-
-
-# no issues with normal glm
-summary(glm(Coverage ~ Eligible,
-               family=binomial, weights=Eligible,
-               data=coverage_data_supplemented2))
-
-
-
-
-# Model fails to converge, also flags that model is nearly unidentifiable
-glmer(Coverage ~ Eligible +
-                      (1 | CCG16CD),
-
-               family=binomial(link=logit),
-               weights=Eligible,
-               data=coverage_data_supplemented2)
-
-
 hist(coverage_data_supplemented2$Screened)
 hist(coverage_data_supplemented2$Eligible)
 hist(coverage_data_supplemented2$Coverage)
@@ -163,9 +121,33 @@ plot(coverage_data_supplemented2$Eligible,
 ```
 
 
+
+```{r}
+# no issues with normal glm
+summary(glm(Coverage ~ Eligible,
+               family=binomial, weights=Eligible,
+               data=coverage_data_supplemented2))
+
+```
+
+
+## GLMM model with just Eligible popuation
+
+```{r}
+
+# Model fails to converge, also flags that model is nearly unidentifiable
+glmer(Coverage ~ Eligible +
+                      (1 | CCG16CD),
+
+               family=binomial(link=logit),
+               weights=Eligible,
+               data=coverage_data_supplemented2)
+
+```
+
+
 ```{r}
 # Try fitting a log transformed version of Eligible populaiton
-
 
 # Log transform eligible
 coverage_data_supplemented2$Eligible_log <- log(coverage_data_supplemented2$Eligible)
@@ -180,3 +162,132 @@ glmer(Coverage ~ Eligible_log +
                data=coverage_data_supplemented2)
 
 ```
+
+
+```{r}
+# Try fitting a scaled version of Eligible population
+
+# Scale eligible
+coverage_data_supplemented2$Eligible_scaled <- as.vector(scale(coverage_data_supplemented2$Eligible, center=T, scale=T))
+
+# Model converges but warning about model being nearly unidentifiable: ery large eigenvalue
+glmer(Coverage ~ Eligible_scaled +
+                      (1 | CCG16CD),
+
+               family=binomial(link=logit),
+               weights=Eligible,
+               data=coverage_data_supplemented2)
+
+```
+
+```{r}
+# Try fitting a scaled log version of Eligible population
+
+# Scale and log eligible
+coverage_data_supplemented2$Eligible_log_scaled <- as.vector(scale(log(coverage_data_supplemented2$Eligible), center=T, scale=T))
+
+# Model converges but warning about model being nearly unidentifiable: ery large eigenvalue
+glmer(Coverage ~ Eligible_log_scaled +
+                      (1 | CCG16CD),
+
+               family=binomial(link=logit),
+               weights=Eligible,
+               data=coverage_data_supplemented2)
+
+```
+
+## Is the answer simply that there is no relationship??
+
+```{r}
+plot(coverage_data_supplemented2$Eligible_log_scaled,
+     coverage_data_supplemented2$Coverage)
+
+```
+
+
+
+## Simple model with just Nurses per 1k eligible population and no multilevel structure
+
+```{r}
+# Exclude 291 practices with zero nurses
+coverage_data_supplemented2 %>%
+  filter(nurses_per_1k_eligible_women==0) %>% 
+  summarise(n())
+
+
+coverage_data_supplemented2 <- coverage_data_supplemented2 %>%
+  filter(nurses_per_1k_eligible_women!=0)
+
+```
+
+Some plots first
+
+```{r}
+hist(coverage_data_supplemented2$nurses_per_1k_eligible_women)
+
+plot(coverage_data_supplemented2$nurses_per_1k_eligible_women,
+     coverage_data_supplemented2$Screened)
+
+
+plot(coverage_data_supplemented2$nurses_per_1k_eligible_women,
+     coverage_data_supplemented2$Coverage)
+
+```
+
+
+
+```{r}
+# no issues with normal glm
+summary(glm(Coverage ~ nurses_per_1k_eligible_women,
+               family=binomial, weights=Eligible,
+               data=coverage_data_supplemented2))
+
+```
+
+
+## GLMM model with just nurses_per_1k_eligible_women
+
+```{r}
+
+# Model converges but flags that model is nearly unidentifiable
+glmer(Coverage ~ nurses_per_1k_eligible_women +
+                      (1 | CCG16CD),
+
+               family=binomial(link=logit),
+               weights=Eligible,
+               data=coverage_data_supplemented2)
+```
+
+
+```{r}
+# Try fitting a log transformed version of nurses_per_1k_eligible_women
+
+# Log transform
+coverage_data_supplemented2$nurses_per_1k_eligible_women_log <- log(coverage_data_supplemented2$nurses_per_1k_eligible_women)
+
+
+# However this does not look like a strong relationship!!
+plot(coverage_data_supplemented2$nurses_per_1k_eligible_women_log,
+     coverage_data_supplemented2$Coverage)
+
+
+
+# Model converges, no warnings
+glmer(Coverage ~ nurses_per_1k_eligible_women_log +
+                      (1 | CCG16CD),
+
+               family=binomial(link=logit),
+               weights=Eligible,
+               data=coverage_data_supplemented2)
+
+summary(glmer(Coverage ~ nurses_per_1k_eligible_women_log +
+                      (1 | CCG16CD),
+
+               family=binomial(link=logit),
+               weights=Eligible,
+               data=coverage_data_supplemented2))
+
+
+
+```
+
