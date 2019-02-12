@@ -33,7 +33,7 @@ library("arm") # to get se.ranef function
 library("kableExtra") # to make tables nicer
 ```
 
-# Modelling
+# Modelling prep
 
 ## Take a copy of dataset
 
@@ -99,7 +99,7 @@ coverage_data_supplemented2$CCG16CD <- factor(coverage_data_supplemented2$CCG16C
 ```
 
 
-
+# Eligible Population
 
 ## Simple model with just Eligible population and no multilevel structure
 
@@ -129,7 +129,6 @@ summary(glm(Coverage ~ Eligible,
                data=coverage_data_supplemented2))
 
 ```
-
 
 ## GLMM model with just Eligible popuation
 
@@ -204,7 +203,7 @@ plot(coverage_data_supplemented2$Eligible_log_scaled,
 
 ```
 
-
+# Nurses per 1k eligible pop
 
 ## Simple model with just Nurses per 1k eligible population and no multilevel structure
 
@@ -291,3 +290,142 @@ summary(glmer(Coverage ~ nurses_per_1k_eligible_women_log +
 
 ```
 
+# IMD 2015
+
+## Simple model with just IMD and no multilevel structure
+
+Some plots first
+
+```{r}
+hist(coverage_data_supplemented2$IMD_2015)
+
+plot(coverage_data_supplemented2$IMD_2015,
+     coverage_data_supplemented2$Screened)
+
+
+plot(coverage_data_supplemented2$IMD_2015,
+     coverage_data_supplemented2$Coverage)
+
+```
+
+
+
+```{r}
+# no issues with normal glm
+summary(glm(Coverage ~ IMD_2015,
+               family=binomial, weights=Eligible,
+               data=coverage_data_supplemented2))
+
+```
+
+
+## GLMM model with just IMD_2015
+
+```{r}
+
+# Model converges but flags that model is nearly unidentifiable
+glmer(Coverage ~ IMD_2015 +
+                      (1 | CCG16CD),
+
+               family=binomial(link=logit),
+               weights=Eligible,
+               data=coverage_data_supplemented2)
+```
+
+
+```{r}
+# Try fitting a log transformed version of IMD_2015
+
+# Log transform
+coverage_data_supplemented2$IMD_2015_log <- log(coverage_data_supplemented2$IMD_2015)
+
+
+hist(coverage_data_supplemented2$IMD_2015_log)
+
+plot(coverage_data_supplemented2$IMD_2015_log,
+     coverage_data_supplemented2$Coverage)
+
+
+
+# Model converges, no warnings
+glmer(Coverage ~ IMD_2015_log +
+                      (1 | CCG16CD),
+
+               family=binomial(link=logit),
+               weights=Eligible,
+               data=coverage_data_supplemented2)
+
+summary(glmer(Coverage ~ IMD_2015_log +
+                      (1 | CCG16CD),
+
+               family=binomial(link=logit),
+               weights=Eligible,
+               data=coverage_data_supplemented2))
+
+
+
+```
+
+
+
+```{r}
+# Try fitting a scaled version of IMD_2015
+
+# Scale
+coverage_data_supplemented2$IMD_2015_scaled <- as.vector(scale(coverage_data_supplemented2$IMD_2015, scale=T, center=T))
+
+
+hist(coverage_data_supplemented2$IMD_2015_scaled)
+
+plot(coverage_data_supplemented2$IMD_2015_scaled,
+     coverage_data_supplemented2$Coverage)
+
+
+
+# Model is nearly unidentifiable 
+glmer(Coverage ~ IMD_2015_scaled +
+                      (1 | CCG16CD),
+
+               family=binomial(link=logit),
+               weights=Eligible,
+               data=coverage_data_supplemented2)
+
+
+```
+
+
+# How does this affect fitting the full model?
+
+```{r}
+
+# Full model converges bu only if:
+# IMD_2015 is log transformed
+# nurses_per_1k_eligible_women is log transformed
+# Eligible population is removed (which I think is justified as no relationship is apparent)
+
+fit <- glmer(Coverage ~
+                      Ethn_Asian +
+                      Ethn_Black +
+                      Ethn_Mixed +
+                      Ethn_Other +
+                      Age_25_to_49 +
+                      Age_65_and_over +
+                      IMD_2015_log +
+                      Satisfied_Opening_Hours +
+                      osnrth100km +
+                      Urban_Rural +
+                      FEMALE_GP_PROPORTION +
+                      NON_UKQ_GP_PROPORTION +
+                      nurses_per_1k_eligible_women_log +
+
+                      (1 | CCG16CD),
+
+               family=binomial(link=logit),
+               weights=Eligible,
+               data=coverage_data_supplemented2)
+
+summary(fit)
+
+
+
+```
