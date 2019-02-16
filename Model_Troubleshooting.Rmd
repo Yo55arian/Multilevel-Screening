@@ -257,6 +257,23 @@ glmer(Coverage ~ nurses_per_1k_eligible_women +
                data=coverage_data_supplemented2)
 ```
 
+## Scaled
+
+```{r}
+coverage_data_supplemented2$nurses_per_1k_eligible_women_scaled <- as.vector(scale(coverage_data_supplemented2$nurses_per_1k_eligible_women,center=T, scale=T))
+
+# Model converges but flags that model is nearly unidentifiable
+glmer(Coverage ~ nurses_per_1k_eligible_women_scaled +
+                      (1 | CCG16CD),
+
+               family=binomial(link=logit),
+               weights=Eligible,
+               data=coverage_data_supplemented2)
+
+```
+
+
+## Log transformed
 
 ```{r}
 # Try fitting a log transformed version of nurses_per_1k_eligible_women
@@ -289,6 +306,90 @@ summary(glmer(Coverage ~ nurses_per_1k_eligible_women_log +
 
 
 ```
+
+## Will the model converge if we exclude outliers from the upper end of the distribution?
+
+```{r}
+
+# quite a heavy handed cut
+coverage_data_supplemented2 <- coverage_data_supplemented2 %>% 
+  filter(nurses_per_1k_eligible_women < 5)
+
+# Model converges but flags that model is nearly unidentifiable
+glmer(Coverage ~ nurses_per_1k_eligible_women +
+                      (1 | CCG16CD),
+
+               family=binomial(link=logit),
+               weights=Eligible,
+               data=coverage_data_supplemented2)
+
+```
+
+
+## What about scaled after the outliers are excluded?
+
+## Scaled
+
+```{r}
+coverage_data_supplemented2$nurses_per_1k_eligible_women_scaled <- as.vector(scale(coverage_data_supplemented2$nurses_per_1k_eligible_women,center=T, scale=T))
+
+
+plot(coverage_data_supplemented2$nurses_per_1k_eligible_women_scaled,
+     coverage_data_supplemented2$Coverage)
+
+
+plot(coverage_data_supplemented2$nurses_per_1k_eligible_women_scaled,
+     coverage_data_supplemented2$Eligible)
+
+# Model converges but flags that model is nearly unidentifiable
+glmer(Coverage ~ nurses_per_1k_eligible_women_scaled +
+                      (1 | CCG16CD),
+
+               family=binomial(link=logit),
+               weights=Eligible,
+               data=coverage_data_supplemented2)
+
+```
+
+
+### But this works - adjusting scaled values to be similar to dependant var
+```{r}
+
+coverage_data_supplemented2$nurses_per_1k_eligible_women_scaled_2 <- (coverage_data_supplemented2$nurses_per_1k_eligible_women_scaled + 3) / 10
+
+plot(coverage_data_supplemented2$nurses_per_1k_eligible_women_scaled_2,
+     coverage_data_supplemented2$Coverage)
+
+
+# Model converges but flags that model is nearly unidentifiable
+glmer(Coverage ~ nurses_per_1k_eligible_women_scaled_2 +
+                      (1 | CCG16CD),
+
+               family=binomial(link=logit),
+               weights=Eligible,
+               data=coverage_data_supplemented2)
+
+```
+
+
+## Trying some of the tips from a cross-validated forum post on this issue:
+https://stats.stackexchange.com/questions/164457/r-glmer-warnings-model-fails-to-converge-model-is-nearly-unidentifiable
+
+# First try changing the number of iterations of the optimiser
+
+```{r}
+# Model converges but flags that model is nearly unidentifiable
+glmer(Coverage ~ nurses_per_1k_eligible_women +
+                      (1 | CCG16CD),
+
+               family=binomial(link=logit),
+               weights=Eligible,
+               data=coverage_data_supplemented2,
+      
+      glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 1000000)))
+
+```
+
 
 # IMD 2015
 
@@ -416,7 +517,7 @@ fit <- glmer(Coverage ~
                       Urban_Rural +
                       FEMALE_GP_PROPORTION +
                       NON_UKQ_GP_PROPORTION +
-                      nurses_per_1k_eligible_women_log +
+                      nurses_per_1k_eligible_women_scaled_2 + ## Interesting
 
                       (1 | CCG16CD),
 
