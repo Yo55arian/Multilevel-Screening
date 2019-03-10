@@ -19,6 +19,7 @@ knitr::opts_chunk$set()
 library("knitr")
 library("ggplot2"); theme_set(theme_bw())
 library("dplyr")
+library("dbplyr")
 library("tidyr")
 library("reshape2")
 library("fingertipsR")
@@ -69,11 +70,16 @@ rm(lsoa_demographics)
 ```
 
 
+
 ```{r}
 # GP catchment female population for Jan 2017
 # From: http://digital.nhs.uk/catalogue/PUB23139
 
 gp_lsoa_catch <- read.csv(file="data\\gp-reg-patients-LSOA-alt-tall.csv", stringsAsFactors=F)
+
+# remove instances where lsoa11 code missing
+gp_lsoa_catch <- filter(gp_lsoa_catch, LSOA_CODE != "NO2011")
+
 
 
 # calculate total LSOA population
@@ -104,6 +110,103 @@ gp_lsoa_catch[,14:17] <- (gp_lsoa_catch[,14:17] * gp_lsoa_catch$PERCENTAGE_OF_LS
 
 ```
 
+
+
+```{r}
+# Create median age for each practice
+
+# read in population by single year of age by lsoa
+lsoa_syoa <- read.csv(file="data\\LSOA_SYOA.csv", stringsAsFactors=F)
+
+# tidy the data
+lsoa_syoa <- lsoa_syoa %>% 
+  dplyr::select(-X) %>% 
+  gather(-LSOA, key="Age", value="TOTAL_FEMALE") %>% 
+  mutate("Age"=as.numeric(gsub("X","",Age)),
+         "TOTAL_FEMALE"=as.numeric(TOTAL_FEMALE))
+  
+
+# join to GP proportions
+# Error: cannot allocate vector of size 547.3 Mb
+# gp_lsoa_catch %>%
+#   dplyr::select(PRACTICE_CODE, LSOA_CODE, PERCENTAGE_OF_LSOA) %>% 
+#   left_join(lsoa_syoa, by=c("LSOA_CODE"="LSOA"))
+
+# so try using a SQL lite database instead
+mydb <- dbConnect(RSQLite::SQLite(), "medianAgeDB")
+dbWriteTable(mydb, "lsoa_syoa", lsoa_syoa)
+dbWriteTable(mydb, "gp_lsoa_catch", gp_lsoa_catch)
+# dbListTables(mydb)
+
+dbGetQuery(mydb,
+           "CREATE INDEX index_lsoa_age ON lsoa_syoa(LSOA)")
+
+dbGetQuery(mydb,
+           "CREATE INDEX index_lsoa_catch ON gp_lsoa_catch(LSOA_CODE)")
+
+
+dbGetQuery(mydb,
+           "
+            CREATE TABLE gp_age_profile AS
+
+            SELECT
+              gp.PRACTICE_CODE,
+              age.Age,
+              SUM(age.TOTAL_FEMALE) AS 'TOTAL_FEMALE'
+
+
+            FROM
+              gp_lsoa_catch gp
+                
+              LEFT OUTER JOIN
+              lsoa_syoa age
+              ON
+              gp.LSOA_CODE = age.LSOA
+           
+            GROUP BY
+              age.Age,
+              gp.PRACTICE_CODE
+           ")
+
+
+
+gp_age_profile <- dbGetQuery(mydb,
+           "
+            SELECT
+              PRACTICE_CODE,
+              Age,
+              TOTAL_FEMALE
+            FROM
+              gp_age_profile
+            
+           ")
+
+
+
+
+
+gp_age_profile <- gp_age_profile %>%
+  #filter(PRACTICE_CODE %in% c("A86037", "A87003")) %>% 
+  dplyr::select(PRACTICE_CODE,
+              Age,
+              TOTAL_FEMALE) %>%
+  group_by(PRACTICE_CODE) %>% 
+  arrange(PRACTICE_CODE, Age) %>% 
+  mutate(
+    "MEDIAN_POINT"=sum(TOTAL_FEMALE)/2,
+    "ROLLING_TOTAL_FEMALE"=cumsum(TOTAL_FEMALE),
+    "TOTAL_FEMALE_RUN_PERCENT" = cumsum(TOTAL_FEMALE)/sum(TOTAL_FEMALE)
+  ) %>% 
+  filter(TOTAL_FEMALE_RUN_PERCENT >= 0.5) %>% 
+  group_by(PRACTICE_CODE) %>% 
+  summarise("MEDIAN_AGE"=min(Age))
+
+
+# Clean up sqlite database
+dbDisconnect(mydb)
+unlink("medianAgeDB.sqlite")
+
+```
 
 
 ```{r}
