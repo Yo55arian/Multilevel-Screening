@@ -413,6 +413,13 @@ coverage_data_supplemented <- coverage_data_supplemented %>%
 nrow(coverage_data_supplemented)
 # ----------
 
+coverage_data_supplemented <- coverage_data_supplemented %>%
+  inner_join(gp_age_profile, by=c("OrganisationCode"="PRACTICE_CODE"))
+
+# ----------
+nrow(coverage_data_supplemented)
+# ----------
+
 # minor adjustments
 coverage_data_supplemented <- coverage_data_supplemented %>%
   mutate("osnrth100km"=osnrth1m/100000,
@@ -541,6 +548,23 @@ ggplot(data=., aes(CCG16NM, Coverage)) +
 
 
 ```
+
+
+## Exploration of Median Age
+```{r}
+
+ggplot(coverage_data_supplemented, aes(MEDIAN_AGE, Coverage)) +
+  geom_point(alpha=0.2) +
+  geom_smooth(method="lm", se=F, col="red") +
+  geom_smooth(method="loess", se=F, col="blue")
+
+
+summary(lm(data=coverage_data_supplemented, Coverage ~ MEDIAN_AGE))
+
+
+```
+
+
 
 ## Additional Exploration of Ethnicity Data
 
