@@ -553,11 +553,9 @@ ggplot(data=., aes(CCG16NM, Coverage)) +
 ## Exploration of Median Age
 ```{r}
 
-ggplot(coverage_data_supplemented, aes(MEDIAN_AGE, Coverage)) +
-  geom_point(alpha=0.2) +
-  geom_smooth(method="lm", se=F, col="red") +
-  geom_smooth(method="loess", se=F, col="blue")
-
+ggplot(coverage_data_supplemented, aes(MEDIAN_AGE, Coverage, col=IMD_2015_Quintile)) +
+  geom_jitter(alpha=0.2) +
+  geom_smooth(method="lm", se=F, col="red")
 
 summary(lm(data=coverage_data_supplemented, Coverage ~ MEDIAN_AGE))
 
